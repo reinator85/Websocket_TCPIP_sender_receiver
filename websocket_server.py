@@ -101,7 +101,11 @@ class WebSocketServer(threading.Thread):
                     self.logger.info(f"[Connection {connection_id}] Received message:")
                     self.logger.info(f"[Connection {connection_id}] Message type: {message_type}")
                     self.logger.info(f"[Connection {connection_id}] Full message: {message}")
-                    self.message_queue.put(("RECEIVED", f"Received: {data.get('message', str(data))}"))
+                    display_msg = f"Received: {data.get('message', str(data))}"
+                    if "error_code" in data:
+                        self.message_queue.put(("RECEIVED_ERROR", display_msg))
+                    else:
+                        self.message_queue.put(("RECEIVED", display_msg))
 
                     # No automatic response is sent
                 except json.JSONDecodeError:
@@ -272,6 +276,16 @@ class WebSocketGUI:
         self.message_text = scrolledtext.ScrolledText(text_frame, height=8, width=80)
         self.message_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.message_text.bind('<Control-Return>', lambda e: self.send_message())
+        # Copy / paste / cut / select all in the message box
+        self.message_text.bind('<Control-c>', lambda e: self._clipboard_copy())
+        self.message_text.bind('<Control-C>', lambda e: self._clipboard_copy())
+        self.message_text.bind('<Control-v>', lambda e: self._clipboard_paste())
+        self.message_text.bind('<Control-V>', lambda e: self._clipboard_paste())
+        self.message_text.bind('<Control-x>', lambda e: self._clipboard_cut())
+        self.message_text.bind('<Control-X>', lambda e: self._clipboard_cut())
+        self.message_text.bind('<Control-a>', lambda e: self._clipboard_select_all())
+        self.message_text.bind('<Control-A>', lambda e: self._clipboard_select_all())
+        self.message_text.bind('<Button-3>', self._show_message_context_menu)
 
         self.send_button = ttk.Button(send_frame, text="Send", command=self.send_message)
         self.send_button.grid(row=0, column=1, sticky=(tk.N, tk.S))
@@ -283,9 +297,16 @@ class WebSocketGUI:
         log_frame.rowconfigure(0, weight=1)
 
         self.log_text = scrolledtext.ScrolledText(
-            log_frame, height=25, state="disabled"
+            log_frame, height=25, state="normal"
         )
         self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Allow copy only in logs (block editing)
+        self.log_text.bind('<Key>', self._block_log_edit)
+        self.log_text.bind('<Control-c>', lambda e: self._clipboard_copy_from_log())
+        self.log_text.bind('<Control-C>', lambda e: self._clipboard_copy_from_log())
+        self.log_text.bind('<Control-a>', lambda e: self._log_select_all())
+        self.log_text.bind('<Control-A>', lambda e: self._log_select_all())
+        self.log_text.bind('<Button-3>', self._show_log_context_menu)
 
         # Stats frame
         stats_frame = ttk.LabelFrame(main_frame, text="Statistics", padding="5")
@@ -299,6 +320,64 @@ class WebSocketGUI:
 
         self.messages_sent = 0
         self.messages_received = 0
+
+    def _clipboard_copy(self):
+        self.message_text.event_generate("<<Copy>>")
+        return "break"
+
+    def _clipboard_paste(self):
+        self.message_text.event_generate("<<Paste>>")
+        return "break"
+
+    def _clipboard_cut(self):
+        self.message_text.event_generate("<<Cut>>")
+        return "break"
+
+    def _clipboard_select_all(self):
+        self.message_text.event_generate("<<SelectAll>>")
+        return "break"
+
+    def _block_log_edit(self, event):
+        """Block editing in logs; only allow Ctrl+C and Ctrl+A."""
+        if (event.state & 0x4) and event.keysym in ('c', 'C', 'a', 'A'):
+            return
+        return "break"
+
+    def _clipboard_copy_from_log(self):
+        """Copy selection from the log area to the clipboard."""
+        try:
+            sel = self.log_text.get(tk.SEL_FIRST, tk.SEL_LAST)
+            self.root.clipboard_clear()
+            self.root.clipboard_append(sel)
+        except tk.TclError:
+            pass
+        return "break"
+
+    def _log_select_all(self):
+        """Select all text in the log area."""
+        self.log_text.tag_add(tk.SEL, "1.0", tk.END)
+        self.log_text.mark_set(tk.INSERT, "1.0")
+        self.log_text.see(tk.INSERT)
+        return "break"
+
+    def _show_message_context_menu(self, event):
+        """Right-click context menu for the message box."""
+        self.message_text.focus_set()
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Copy", command=self._clipboard_copy)
+        menu.add_command(label="Paste", command=self._clipboard_paste)
+        menu.add_command(label="Cut", command=self._clipboard_cut)
+        menu.add_separator()
+        menu.add_command(label="Select all", command=self._clipboard_select_all)
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _show_log_context_menu(self, event):
+        """Right-click context menu for the log area."""
+        self.log_text.focus_set()
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Copy", command=self._clipboard_copy_from_log)
+        menu.add_command(label="Select all", command=self._log_select_all)
+        menu.tk_popup(event.x_root, event.y_root)
 
     def start_server(self):
         if not self.server.running:
@@ -385,12 +464,15 @@ class WebSocketGUI:
                         "end-1c"
                     )
                     self.messages_received += 1
-                elif msg_type == "SENT":
+                elif msg_type == "RECEIVED_ERROR":
                     self.log_text.tag_add(
-                        "sent",
+                        "error",
                         f"{self.log_text.index('end-2c').split('.')[0]}.0",
                         "end-1c"
                     )
+                    self.messages_received += 1
+                elif msg_type == "SENT":
+                    pass
                 elif msg_type == "WARNING":
                     self.log_text.tag_add(
                         "warning",
@@ -405,7 +487,7 @@ class WebSocketGUI:
                     )
 
                 self.log_text.see(tk.END)
-                self.log_text.config(state="disabled")
+                self.log_text.config(state="normal")
                 self.update_stats()
         except Empty:
             pass
