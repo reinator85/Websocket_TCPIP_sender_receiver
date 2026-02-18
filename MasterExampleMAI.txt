@@ -1,0 +1,114 @@
+{
+  "action_buttons": {
+    "back_inside": {
+      "action_on_single_click": {
+        "basic": "NOTIFY"
+      },
+      "color": "GREEN",
+      "ref_id": "PHY_BUTTON_BACK_INSIDE",
+      "text": "Button 3"
+    },
+    "back_outside": {
+      "action_on_single_click": {
+        "basic": "NOTIFY"
+      },
+      "color": "ORANGE",
+      "ref_id": "PHY_BUTTON_BACK_OUTSIDE",
+      "text": "Button 4"
+    },
+    "front_inside": {
+      "action_on_single_click": {
+        "basic": "NOTIFY"
+      },
+      "color": "YELLOW",
+      "ref_id": "PHY_BUTTON_FRONT_INSDE",
+      "text": "Button 2"
+    },
+    "front_outside": {
+      "action_on_single_click": {
+        "basic": "NOTIFY"
+      },
+      "color": "BLUE",
+      "ref_id": "PHY_BUTTON_FRONT_OUTSIDE",
+      "text": "Button 1"
+    }
+  },
+  "active_screen_view": "SCREEN_VIEW_2",
+  "api_version": "3.0",
+  "device_serial": "XXXXXXXXXXXXXXX",
+  "event_id": "881f6fd2-8bba-418d-a076-c5ed067d8321",
+  "event_type": "display_v2!",
+  "forced_orientation": "PORTRAIT",
+  "gateway_serial": "YYYYYYYYYYYYYY",
+  "ref_id": "SCREEN_1",
+  "screen_views": [
+    {
+      "pg_work1_btn1_t1": {
+        "button_1": {
+          "action_on_click": {
+            "basic": "NOTIFY"
+          },
+          "ref_id": "BUTTON_1",
+          "text": "Button 1"
+        },
+        "field_top": {
+          "input_method": {
+            "num_pad": {
+              "hint": "My numpad",
+              "initial_value": "123"
+            }
+          },
+          "ref_id": "CELL_1",
+          "state": {
+            "highlighted": true,
+            "type": "FOCUSED"
+          },
+          "text_content": "Field top",
+          "text_header": "Header"
+        }
+      },
+      "ref_id": "SCREEN_VIEW_1"
+    },
+    {
+      "pg_work2_t1": {
+        "field_bottom": {
+          "input_method": {
+            "num_wheel": {
+              "initial_value": 123,
+              "title": "My numwheel"
+            }
+          },
+          "text_content": "Field bottom",
+          "text_header": "Header"
+        },
+        "field_top": {
+          "text_content": "Field top",
+          "text_header": "Header"
+        }
+      },
+      "ref_id": "SCREEN_VIEW_2"
+    },
+    {
+      "pg_work2_t4": {
+        "field_left": {
+          "text_content": "Field left",
+          "text_header": "Header"
+        },
+        "field_right": {
+          "text_content": "Field right",
+          "text_header": "Header"
+        }
+      },
+      "ref_id": "SCREEN_VIEW_3"
+    }
+  ],
+  "time_created": 1546300800000,
+  "timer": {
+    "action_on_expire": {
+      "click_on_component": {
+        "ref_id": "CELL_1"
+      }
+    },
+    "timeout": 1000
+  }
+}
