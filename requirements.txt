@@ -1,1 +1,2 @@
-websockets==15.0.1 
+# Sender/Receiver V1.0 - Dependencies
+websockets>=12.0

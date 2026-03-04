@@ -1,2 +1,3 @@
-# Dependencias solo para compilar el ejecutable (PyInstaller)
-pyinstaller>=6.0.0
+# Sender/Receiver V1.0 - Build dependencies (PyInstaller)
+pyinstaller>=6.0
+websockets>=12.0

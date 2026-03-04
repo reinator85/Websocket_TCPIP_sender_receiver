@@ -5,13 +5,12 @@ import json
 import uuid
 import logging
 import threading
-from queue import Queue, Empty
+from queue import Queue
 from datetime import datetime
-import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
 
 class WebSocketServer(threading.Thread):
     def __init__(self, host="0.0.0.0", port=8765):
@@ -40,19 +39,16 @@ class WebSocketServer(threading.Thread):
         except Exception as e:
             self.logger.error(f"Error in WebSocket thread: {str(e)}", exc_info=True)
         finally:
-            # Limpiar recursos
             if self.loop and not self.loop.is_closed():
                 try:
-                    # Cancelar todas las tareas pendientes
                     pending = asyncio.all_tasks(self.loop)
                     for task in pending:
                         task.cancel()
-                    # Ejecutar las cancelaciones
                     if pending:
                         self.loop.run_until_complete(
                             asyncio.gather(*pending, return_exceptions=True)
                         )
-                except:
+                except Exception:
                     pass
                 finally:
                     self.loop.close()
@@ -61,7 +57,6 @@ class WebSocketServer(threading.Thread):
 
     async def start_server(self):
         try:
-            # Create a wrapper function that keeps the instance reference
             async def handler_wrapper(websocket, path=None):
                 await self.handler(websocket, path)
 
@@ -83,7 +78,6 @@ class WebSocketServer(threading.Thread):
             raise
 
     async def handler(self, websocket, path):
-        """WebSocket connection handler - fixed signature"""
         client_ip = websocket.remote_address[0]
         self.connection_count += 1
         connection_id = self.connection_count
@@ -106,8 +100,6 @@ class WebSocketServer(threading.Thread):
                         self.message_queue.put(("RECEIVED_ERROR", display_msg))
                     else:
                         self.message_queue.put(("RECEIVED", display_msg))
-
-                    # No automatic response is sent
                 except json.JSONDecodeError:
                     self.logger.warning(f"[Connection {connection_id}] Invalid JSON received: {message}")
                     self.message_queue.put(("WARNING", f"Invalid JSON received: {message}"))
@@ -137,7 +129,6 @@ class WebSocketServer(threading.Thread):
             self.message_queue.put(("WARNING", "No connected clients"))
             return
 
-        # Check if the message is already valid JSON
         try:
             json.loads(message)
             message_to_send = message
@@ -156,56 +147,47 @@ class WebSocketServer(threading.Thread):
         for client in list(self.clients):
             try:
                 await client.send(message_to_send)
-            except:
+            except Exception:
                 self.clients.discard(client)
 
     def stop(self):
         if self.running:
             self.logger.info("Stopping WebSocket server...")
             self.running = False
-            
-            # Cerrar todas las conexiones de clientes
+
             if self.loop and self.loop.is_running():
-                # Cerrar el servidor WebSocket
                 if self.server:
                     future = asyncio.run_coroutine_threadsafe(
                         self._close_server(),
                         self.loop
                     )
-                    # Esperar un máximo de 2 segundos para que se cierre
                     try:
                         future.result(timeout=2.0)
                     except Exception as e:
                         self.logger.warning(f"Timeout or error closing server: {e}")
-                # Detener el loop
                 self.loop.call_soon_threadsafe(self.loop.stop)
-            
-            # Esperar a que el thread termine
+
             self.join(timeout=5.0)
-            
-            # Limpiar recursos
+
             self.clients.clear()
             self.server = None
             self.loop = None
-            
+
             if self.start_time:
                 uptime = datetime.now() - self.start_time
                 self.logger.info(f"WebSocket server stopped. Total uptime: {uptime}")
                 self.logger.info(f"Total connections handled: {self.connection_count}")
-    
+
     async def _close_server(self):
-        """Cierra el servidor WebSocket y todas las conexiones"""
         try:
             if self.server:
-                # Cerrar todas las conexiones de clientes
                 for client in list(self.clients):
                     try:
                         await client.close()
-                    except:
+                    except Exception:
                         pass
                 self.clients.clear()
-                
-                # Cerrar el servidor
+
                 self.server.close()
                 await self.server.wait_closed()
                 self.logger.info("WebSocket server closed successfully")
@@ -214,313 +196,3 @@ class WebSocketServer(threading.Thread):
 
     def get_connection_count(self):
         return len(self.clients)
-
-class WebSocketGUI:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("WebSocket Server - Sender/Receiver")
-        self.root.geometry("1000x800")
-        self.server = WebSocketServer()
-        self.server_thread = None
-        self.create_widgets()
-        self.process_messages()
-        self.start_server()
-
-    def create_widgets(self):
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(2, weight=1)
-
-        # Server control frame
-        server_frame = ttk.LabelFrame(main_frame, text="Server Control", padding="5")
-        server_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        server_frame.columnconfigure(1, weight=1)
-
-        ttk.Label(server_frame, text="IP:").grid(row=0, column=0, padx=(0, 5))
-        self.host_entry = ttk.Entry(server_frame, width=15)
-        self.host_entry.insert(0, "0.0.0.0")
-        self.host_entry.grid(row=0, column=1, padx=(0, 10), sticky=(tk.W, tk.E))
-
-        ttk.Label(server_frame, text="Port:").grid(row=0, column=2, padx=(0, 5))
-        self.port_entry = ttk.Entry(server_frame, width=8)
-        self.port_entry.insert(0, "8765")
-        self.port_entry.grid(row=0, column=3, padx=(0, 10))
-
-        self.start_button = ttk.Button(
-            server_frame, text="Start Server", command=self.start_server
-        )
-        self.start_button.grid(row=0, column=4, padx=(0, 5))
-
-        self.stop_button = ttk.Button(
-            server_frame, text="Stop Server", command=self.stop_server, state="disabled"
-        )
-        self.stop_button.grid(row=0, column=5, padx=(0, 5))
-
-        self.status_label = ttk.Label(server_frame, text="Status: Starting...")
-        self.status_label.grid(row=0, column=6, padx=(20, 0))
-
-        # Send message frame
-        send_frame = ttk.LabelFrame(main_frame, text="Send Message", padding="5")
-        send_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        send_frame.columnconfigure(0, weight=1)
-        send_frame.rowconfigure(0, weight=1)
-
-        text_frame = ttk.Frame(send_frame)
-        text_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
-        text_frame.columnconfigure(0, weight=1)
-        text_frame.rowconfigure(0, weight=1)
-
-        self.message_text = scrolledtext.ScrolledText(text_frame, height=8, width=80)
-        self.message_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        self.message_text.bind('<Control-Return>', lambda e: self.send_message())
-        # Copy / paste / cut / select all in the message box
-        self.message_text.bind('<Control-c>', lambda e: self._clipboard_copy())
-        self.message_text.bind('<Control-C>', lambda e: self._clipboard_copy())
-        self.message_text.bind('<Control-v>', lambda e: self._clipboard_paste())
-        self.message_text.bind('<Control-V>', lambda e: self._clipboard_paste())
-        self.message_text.bind('<Control-x>', lambda e: self._clipboard_cut())
-        self.message_text.bind('<Control-X>', lambda e: self._clipboard_cut())
-        self.message_text.bind('<Control-a>', lambda e: self._clipboard_select_all())
-        self.message_text.bind('<Control-A>', lambda e: self._clipboard_select_all())
-        self.message_text.bind('<Button-3>', self._show_message_context_menu)
-
-        self.send_button = ttk.Button(send_frame, text="Send", command=self.send_message)
-        self.send_button.grid(row=0, column=1, sticky=(tk.N, tk.S))
-
-        # Log frame
-        log_frame = ttk.LabelFrame(main_frame, text="Server Logs", padding="5")
-        log_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
-        log_frame.columnconfigure(0, weight=1)
-        log_frame.rowconfigure(0, weight=1)
-
-        self.log_text = scrolledtext.ScrolledText(
-            log_frame, height=25, state="normal"
-        )
-        self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        # Allow copy only in logs (block editing)
-        self.log_text.bind('<Key>', self._block_log_edit)
-        self.log_text.bind('<Control-c>', lambda e: self._clipboard_copy_from_log())
-        self.log_text.bind('<Control-C>', lambda e: self._clipboard_copy_from_log())
-        self.log_text.bind('<Control-a>', lambda e: self._log_select_all())
-        self.log_text.bind('<Control-A>', lambda e: self._log_select_all())
-        self.log_text.bind('<Button-3>', self._show_log_context_menu)
-
-        # Stats frame
-        stats_frame = ttk.LabelFrame(main_frame, text="Statistics", padding="5")
-        stats_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
-
-        self.clients_label = ttk.Label(stats_frame, text="Connected clients: 0")
-        self.clients_label.grid(row=0, column=0, padx=(0, 20))
-
-        self.messages_label = ttk.Label(stats_frame, text="Messages sent: 0")
-        self.messages_label.grid(row=0, column=1)
-
-        self.messages_sent = 0
-        self.messages_received = 0
-
-    def _clipboard_copy(self):
-        self.message_text.event_generate("<<Copy>>")
-        return "break"
-
-    def _clipboard_paste(self):
-        self.message_text.event_generate("<<Paste>>")
-        return "break"
-
-    def _clipboard_cut(self):
-        self.message_text.event_generate("<<Cut>>")
-        return "break"
-
-    def _clipboard_select_all(self):
-        self.message_text.event_generate("<<SelectAll>>")
-        return "break"
-
-    def _block_log_edit(self, event):
-        """Block editing in logs; only allow Ctrl+C and Ctrl+A."""
-        if (event.state & 0x4) and event.keysym in ('c', 'C', 'a', 'A'):
-            return
-        return "break"
-
-    def _clipboard_copy_from_log(self):
-        """Copy selection from the log area to the clipboard."""
-        try:
-            sel = self.log_text.get(tk.SEL_FIRST, tk.SEL_LAST)
-            self.root.clipboard_clear()
-            self.root.clipboard_append(sel)
-        except tk.TclError:
-            pass
-        return "break"
-
-    def _log_select_all(self):
-        """Select all text in the log area."""
-        self.log_text.tag_add(tk.SEL, "1.0", tk.END)
-        self.log_text.mark_set(tk.INSERT, "1.0")
-        self.log_text.see(tk.INSERT)
-        return "break"
-
-    def _show_message_context_menu(self, event):
-        """Right-click context menu for the message box."""
-        self.message_text.focus_set()
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Copy", command=self._clipboard_copy)
-        menu.add_command(label="Paste", command=self._clipboard_paste)
-        menu.add_command(label="Cut", command=self._clipboard_cut)
-        menu.add_separator()
-        menu.add_command(label="Select all", command=self._clipboard_select_all)
-        menu.tk_popup(event.x_root, event.y_root)
-
-    def _show_log_context_menu(self, event):
-        """Right-click context menu for the log area."""
-        self.log_text.focus_set()
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Copy", command=self._clipboard_copy_from_log)
-        menu.add_command(label="Select all", command=self._log_select_all)
-        menu.tk_popup(event.x_root, event.y_root)
-
-    def start_server(self):
-        if not self.server.running:
-            try:
-                host = self.host_entry.get().strip()
-                port = int(self.port_entry.get().strip())
-
-                if port < 1 or port > 65535:
-                    messagebox.showerror("Error", "Port must be between 1 and 65535")
-                    return
-
-                # Si el servidor ya fue iniciado antes (thread tiene ident), crear una nueva instancia
-                # Los threads solo se pueden iniciar una vez, así que necesitamos una nueva instancia
-                if self.server.ident is not None:
-                    # El thread ya fue iniciado antes, crear nueva instancia
-                    self.server = WebSocketServer(host=host, port=port)
-                else:
-                    # Primera vez - actualizar host y port
-                    self.server.host = host
-                    self.server.port = port
-
-                self.server.start()
-                self.server_thread = self.server  # Guardar referencia al thread
-
-                self.start_button.config(state="disabled")
-                self.stop_button.config(state="normal")
-                self.status_label.config(text="Status: Running")
-            except ValueError:
-                messagebox.showerror("Error", "Port must be a valid number")
-            except Exception as e:
-                messagebox.showerror("Error", f"Error starting server: {e}")
-                import traceback
-                traceback.print_exc()
-
-    def stop_server(self):
-        if self.server.running:
-            self.server.stop()
-            # Esperar un momento para asegurar que el puerto se libere
-            import time
-            time.sleep(0.5)
-            # Resetear la referencia al thread para permitir crear nueva instancia
-            if self.server_thread and not self.server_thread.is_alive():
-                self.server_thread = None
-            self.start_button.config(state="normal")
-            self.stop_button.config(state="disabled")
-            self.status_label.config(text="Status: Stopped")
-
-    def send_message(self):
-        message = self.message_text.get("1.0", tk.END).strip()
-        if message:
-            if self.server.running:
-                if self.server.loop and self.server.loop.is_running():
-                    asyncio.run_coroutine_threadsafe(
-                        self.server.broadcast_message(message),
-                        self.server.loop
-                    )
-                    self.messages_sent += 1
-                    self.update_stats()
-                self.message_text.delete("1.0", tk.END)
-            else:
-                messagebox.showwarning(
-                    "Warning", "The server is not running"
-                )
-
-    def process_messages(self):
-        try:
-            while True:
-                msg_type, message = self.server.message_queue.get_nowait()
-                self.log_text.config(state="normal")
-                timestamp = datetime.now().strftime("%H:%M:%S")
-                formatted_message = f"[{timestamp}] {message}\n"
-                self.log_text.insert(tk.END, formatted_message)
-
-                if msg_type == "INFO":
-                    self.log_text.tag_add(
-                        "info",
-                        f"{self.log_text.index('end-2c').split('.')[0]}.0",
-                        "end-1c"
-                    )
-                elif msg_type == "RECEIVED":
-                    self.log_text.tag_add(
-                        "received",
-                        f"{self.log_text.index('end-2c').split('.')[0]}.0",
-                        "end-1c"
-                    )
-                    self.messages_received += 1
-                elif msg_type == "RECEIVED_ERROR":
-                    self.log_text.tag_add(
-                        "error",
-                        f"{self.log_text.index('end-2c').split('.')[0]}.0",
-                        "end-1c"
-                    )
-                    self.messages_received += 1
-                elif msg_type == "SENT":
-                    pass
-                elif msg_type == "WARNING":
-                    self.log_text.tag_add(
-                        "warning",
-                        f"{self.log_text.index('end-2c').split('.')[0]}.0",
-                        "end-1c"
-                    )
-                elif msg_type == "ERROR":
-                    self.log_text.tag_add(
-                        "error",
-                        f"{self.log_text.index('end-2c').split('.')[0]}.0",
-                        "end-1c"
-                    )
-
-                self.log_text.see(tk.END)
-                self.log_text.config(state="normal")
-                self.update_stats()
-        except Empty:
-            pass
-
-        self.root.after(100, self.process_messages)
-
-    def update_stats(self):
-        self.clients_label.config(
-            text=f"Connected clients: {self.server.get_connection_count()}"
-        )
-        self.messages_label.config(
-            text=f"Messages sent: {self.messages_sent} | Received: {self.messages_received}"
-        )
-
-    def setup_colors(self):
-        self.log_text.tag_configure("info", foreground="blue")
-        self.log_text.tag_configure("received", foreground="green")
-        self.log_text.tag_configure("sent", foreground="purple")
-        self.log_text.tag_configure("warning", foreground="orange")
-        self.log_text.tag_configure("error", foreground="red")
-
-def main():
-    root = tk.Tk()
-    app = WebSocketGUI(root)
-    app.setup_colors()
-
-    def on_closing():
-        if app.server.running:
-            app.stop_server()
-        root.destroy()
-
-    root.protocol("WM_DELETE_WINDOW", on_closing)
-    root.mainloop()
-
-if __name__ == "__main__":
-    main()

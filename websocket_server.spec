@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec para WebSocket Server (GUI)
+# PyInstaller spec: Sender/Receiver V1.0 (WebSocket y TCP/IP)
 
 block_cipher = None
 
 a = Analysis(
-    ['websocket_server.py'],
+    ['main.py'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -28,7 +28,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='WebSocketServer',
+    name='SenderReceiver-V1.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

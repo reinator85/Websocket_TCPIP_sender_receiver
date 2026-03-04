@@ -1,28 +1,29 @@
 @echo off
 echo ========================================
-echo    Compilar WebSocket Server (PyInstaller)
+echo    Build Sender/Receiver V1.0 (PyInstaller)
 echo ========================================
 echo.
 
-echo Activando entorno virtual...
+echo Activating virtual environment...
 call venv\Scripts\activate.bat
 
 echo.
-echo Instalando PyInstaller si no esta instalado...
+echo Installing dependencies and PyInstaller...
+pip install -r requirements.txt
 pip install -r requirements-build.txt
 
 echo.
-echo Compilando con PyInstaller...
+echo Building with PyInstaller...
 pyinstaller websocket_server.spec
 
 echo.
-if exist "dist\WebSocketServer.exe" (
+if exist "dist\SenderReceiver-V1.0.exe" (
     echo ========================================
-    echo    Compilacion exitosa.
-    echo    Ejecutable: dist\WebSocketServer.exe
+    echo    Build successful. (V1.0)
+    echo    Executable: dist\SenderReceiver-V1.0.exe
     echo ========================================
 ) else (
-    echo Error: no se genero dist\WebSocketServer.exe
+    echo Error: dist\SenderReceiver-V1.0.exe was not generated
 )
 
 echo.

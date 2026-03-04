@@ -1,6 +1,6 @@
 @echo off
 echo ========================================
-echo    WebSocket Server
+echo    Sender/Receiver - WebSocket ^& TCP/IP
 echo ========================================
 echo.
 
@@ -8,11 +8,11 @@ echo Activating virtual environment...
 call venv\Scripts\activate.bat
 
 echo.
-echo Running WebSocket server...
+echo Running application (main.py)...
 echo.
 
-python websocket_server.py
+python main.py
 
 echo.
-echo Server stopped.
+echo Application stopped.
 pause 
