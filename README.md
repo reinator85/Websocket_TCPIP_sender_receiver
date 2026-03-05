@@ -4,48 +4,53 @@ Python project with a GUI for WebSocket and TCP/IP (server and client). **Versio
 
 ## Environment setup
 
-1. Create virtual environment:
+### Opción recomendada (Windows): script automático
+
+1. **Primera vez o al clonar el proyecto**: ejecutar **`setup_env.bat`**
+   - Crea la carpeta `venv` (entorno virtual)
+   - Instala las dependencias de `requirements.txt`
+   - Si `venv` ya existe, pregunta si quieres reinstalar dependencias
+
+2. **Cada vez que quieras iniciar la aplicación**: ejecutar **`run.bat`**
+   - Activa el entorno virtual y lanza la aplicación
+
+### Opción manual (cualquier sistema)
+
+1. Crear el entorno virtual:
 ```bash
 python -m venv venv
 ```
 
-2. Activate virtual environment:
+2. Activar el entorno virtual:
 ```bash
-# Windows (PowerShell):
-venv\Scripts\Activate.ps1
-
 # Windows (CMD):
 venv\Scripts\activate.bat
+
+# Windows (PowerShell):
+venv\Scripts\Activate.ps1
 
 # Linux/Mac:
 source venv/bin/activate
 ```
 
-3. Install dependencies:
+3. Instalar dependencias:
 ```bash
 pip install -r requirements.txt
 ```
 
-## Usage
-
-### Run the application
-
-#### Option 1: Using .bat files (recommended on Windows)
-1. Double-click `run.bat`
-2. A window will open with the application GUI
-
-#### Option 2: Manually
-1. Activate the virtual environment:
-```bash
-venv\Scripts\Activate.ps1
-```
-
-2. Run the application:
+4. Ejecutar la aplicación:
 ```bash
 python main.py
 ```
 
-3. A window will open with the GUI.
+**Requisitos:** Python 3.8 o superior. La carpeta `venv` no se sube a Git (está en `.gitignore`); cada desarrollador la crea localmente con `setup_env.bat` o los pasos manuales anteriores.
+
+## Usage
+
+### Ejecutar la aplicación
+
+- **Windows (recomendado):** doble clic en **`run.bat`** (después de haber ejecutado `setup_env.bat` al menos una vez).
+- **Manualmente:** activar el entorno virtual y ejecutar `python main.py` (ver pasos manuales arriba).
 
 ### Modes
 
@@ -78,17 +83,43 @@ python main.py
 
 ```
 SenderReceiver/
-├── venv/                    # Virtual environment
 ├── main.py                  # GUI and orchestration (WebSocket & TCP/IP)
 ├── websocket_server.py      # WebSocket server logic
 ├── tcpip_server_client.py   # TCP server and client logic
-├── run_server.bat           # Run application (Windows)
+├── setup_env.bat            # Create venv and install dependencies (Windows) — ejecutar una vez o al clonar
+├── run.bat                  # Run application (Windows)
 ├── build.bat                # Build executable with PyInstaller (Windows) → SenderReceiver-V1.0.exe
 ├── websocket_server.spec    # PyInstaller spec (entry: main.py)
 ├── requirements.txt         # Runtime dependencies
-├── requirements-build.txt  # Build dependencies (PyInstaller + runtime)
+├── requirements-build.txt   # Build dependencies (PyInstaller + runtime)
 ├── README.md                # Documentation
-└── .gitignore
+└── .gitignore               # venv/ y otros excluidos de Git
 ```
 
+*Nota:* La carpeta `venv/` se crea al ejecutar `setup_env.bat` y no se sube al repositorio.
 
+## Message format
+
+### Client to server (JSON)
+```json
+{
+    "api_version": "1.0",
+    "event_type": "message",
+    "event_id": "test-123",
+    "time_created": 1640995200000,
+    "message": "Hello server"
+}
+```
+
+### Server broadcast
+```json
+{
+    "api_version": "1.0",
+    "event_type": "broadcast",
+    "event_id": "uuid",
+    "time_created": 1640995200000,
+    "message": "Message to all clients"
+}
+```
+
+TCP/IP uses the same JSON content with length-prefix framing (4 bytes big-endian length + UTF-8 payload).
