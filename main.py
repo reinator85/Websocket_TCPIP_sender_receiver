@@ -34,7 +34,14 @@ class MainGUI:
         self.messages_sent = 0
         self.messages_received = 0
 
+        # Interface options
+        self.single_newline_var = tk.BooleanVar(value=False)
+        self.color_by_event_var = tk.BooleanVar(value=True)
+
         self.create_widgets()
+        # Aseguramos que los colores de los tags se configuran
+        # justo después de crear los widgets.
+        self.setup_colors()
         self.process_messages()
         self.update_ui_for_mode()
 
@@ -46,9 +53,27 @@ class MainGUI:
         main_frame.columnconfigure(1, weight=1)
         main_frame.rowconfigure(3, weight=1)
 
+        # ---- Interface options ----
+        options_frame = ttk.LabelFrame(main_frame, text="Interface options", padding="5")
+        options_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+
+        self.chk_single_newline = ttk.Checkbutton(
+            options_frame,
+            text="Single line break between log entries",
+            variable=self.single_newline_var,
+        )
+        self.chk_single_newline.grid(row=0, column=0, padx=(0, 20), sticky=tk.W)
+
+        self.chk_color_by_event = ttk.Checkbutton(
+            options_frame,
+            text="Color received messages by event_type",
+            variable=self.color_by_event_var,
+        )
+        self.chk_color_by_event.grid(row=0, column=1, sticky=tk.W)
+
         # ---- Mode ----
         mode_frame = ttk.LabelFrame(main_frame, text="Mode", padding="5")
-        mode_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        mode_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         mode_frame.columnconfigure(1, weight=1)
 
         self.radio_websocket = ttk.Radiobutton(
@@ -82,7 +107,7 @@ class MainGUI:
 
         # ---- Connection ----
         server_frame = ttk.LabelFrame(main_frame, text="Connection", padding="5")
-        server_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        server_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         server_frame.columnconfigure(1, weight=1)
 
         ttk.Label(server_frame, text="IP:").grid(row=0, column=0, padx=(0, 5))
@@ -110,7 +135,7 @@ class MainGUI:
 
         # ---- Send message ----
         send_frame = ttk.LabelFrame(main_frame, text="Send message", padding="5")
-        send_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        send_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         send_frame.columnconfigure(0, weight=1)
         send_frame.rowconfigure(0, weight=1)
 
@@ -137,7 +162,7 @@ class MainGUI:
 
         # ---- Log ----
         log_frame = ttk.LabelFrame(main_frame, text="Log", padding="5")
-        log_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+        log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
 
@@ -152,7 +177,7 @@ class MainGUI:
 
         # ---- Statistics ----
         stats_frame = ttk.LabelFrame(main_frame, text="Statistics", padding="5")
-        stats_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+        stats_frame.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
 
         self.clients_label = ttk.Label(stats_frame, text="Connected clients: 0")
         self.clients_label.grid(row=0, column=0, padx=(0, 20))
@@ -337,33 +362,64 @@ class MainGUI:
                 self.update_stats()
                 self.message_text.delete("1.0", tk.END)
 
+    def _tag_for_message(self, msg_type, message, event_type):
+        """Devuelve el nombre del tag de color para este mensaje."""
+        if msg_type == "INFO":
+            return "info"
+        if msg_type == "WARNING":
+            return "warning"
+        if msg_type == "ERROR":
+            return "error"
+        if msg_type in ("RECEIVED", "RECEIVED_ERROR"):
+            if self.color_by_event_var.get():
+                effective = event_type
+                if not effective:
+                    effective = self._extract_event_type_from_message(str(message))
+                if effective:
+                    norm = str(effective).strip().lower()
+                    if norm == "button_pressed":
+                        return "event_button_pressed"
+                    if norm == "display_v2":
+                        return "event_display_v2"
+                    if norm == "scan":
+                        return "event_scan"
+            return "error" if msg_type == "RECEIVED_ERROR" else "received"
+        return None
+
     def process_messages(self):
         queue = self.get_active_queue()
         if queue is not None:
             try:
                 while True:
-                    msg_type, message = queue.get_nowait()
+                    item = queue.get_nowait()
+                    if isinstance(item, tuple) and len(item) == 3:
+                        msg_type, message, event_type = item
+                    else:
+                        msg_type, message = item
+                        event_type = None
+
                     self.log_text.config(state="normal")
                     timestamp = datetime.now().strftime("%H:%M:%S")
-                    formatted_message = f"[{timestamp}] {message}\n\n"
-                    self.log_text.insert(tk.END, formatted_message)
+                    line_text = f"[{timestamp}] {message}"
 
-                    start_idx = f"{self.log_text.index('end-2c').split('.')[0]}.0"
-                    end_idx = "end-1c"
-                    if msg_type == "INFO":
-                        self.log_text.tag_add("info", start_idx, end_idx)
-                    elif msg_type == "RECEIVED":
-                        self.log_text.tag_add("received", start_idx, end_idx)
+                    # Tag de color: lo calculamos antes de insertar.
+                    tag_name = self._tag_for_message(msg_type, message, event_type)
+
+                    # Insertar la línea CON el tag en una sola operación
+                    # (así Tkinter aplica el color de forma fiable).
+                    if tag_name:
+                        self.log_text.insert(tk.END, line_text, tag_name)
+                    else:
+                        self.log_text.insert(tk.END, line_text)
+
+                    # Separación entre entradas (sin tag).
+                    if self.single_newline_var.get():
+                        self.log_text.insert(tk.END, "\n")
+                    else:
+                        self.log_text.insert(tk.END, "\n\n")
+
+                    if msg_type in ("RECEIVED", "RECEIVED_ERROR"):
                         self.messages_received += 1
-                    elif msg_type == "RECEIVED_ERROR":
-                        self.log_text.tag_add("error", start_idx, end_idx)
-                        self.messages_received += 1
-                    elif msg_type == "SENT":
-                        pass
-                    elif msg_type == "WARNING":
-                        self.log_text.tag_add("warning", start_idx, end_idx)
-                    elif msg_type == "ERROR":
-                        self.log_text.tag_add("error", start_idx, end_idx)
 
                     self.log_text.see(tk.END)
                     self.update_stats()
@@ -380,11 +436,61 @@ class MainGUI:
         )
 
     def setup_colors(self):
-        self.log_text.tag_configure("info", foreground="blue")
-        self.log_text.tag_configure("received", foreground="green")
-        self.log_text.tag_configure("sent", foreground="purple")
-        self.log_text.tag_configure("warning", foreground="orange")
-        self.log_text.tag_configure("error", foreground="red")
+        # Usamos colores en hexadecimal para mayor compatibilidad (p. ej. Windows).
+        self.log_text.config(foreground="#000000")
+        self.log_text.tag_configure("info", foreground="#0000FF")           # azul
+        self.log_text.tag_configure("received", foreground="#000000")      # negro
+        self.log_text.tag_configure("sent", foreground="#800080")           # púrpura
+        self.log_text.tag_configure("warning", foreground="#FF8C00")       # naranja
+        self.log_text.tag_configure("error", foreground="#FF0000")          # rojo
+        self.log_text.tag_configure("event_button_pressed", foreground="#006400")  # verde
+        self.log_text.tag_configure("event_display_v2", foreground="#0000FF")       # azul
+        self.log_text.tag_configure("event_scan", foreground="#FF0000")             # rojo
+
+    def _extract_event_type_from_message(self, message: str):
+        """
+        Extrae event_type del texto del mensaje cuando viene incrustado en el
+        propio dict/JSON (por ejemplo, "Received: {... 'event_type': 'scan' ...}").
+        """
+        if "event_type" not in message:
+            return None
+
+        # Probamos con comillas dobles y simples alrededor de la clave.
+        for key_pattern in ('"event_type"', "'event_type'"):
+            idx = message.find(key_pattern)
+            if idx == -1:
+                continue
+            rest = message[idx + len(key_pattern) :]
+            colon_idx = rest.find(":")
+            if colon_idx == -1:
+                continue
+            rest = rest[colon_idx + 1 :].lstrip()
+            if not rest:
+                continue
+
+            # Valor entre comillas
+            if rest[0] in ("'", '"'):
+                quote = rest[0]
+                rest = rest[1:]
+                end = rest.find(quote)
+                if end == -1:
+                    value = rest
+                else:
+                    value = rest[:end]
+            else:
+                # Valor sin comillas, hasta coma o cierre de llave
+                end = len(rest)
+                for sep in (",", "}"):
+                    sep_idx = rest.find(sep)
+                    if sep_idx != -1 and sep_idx < end:
+                        end = sep_idx
+                value = rest[:end].strip()
+
+            value = value.strip()
+            if value:
+                return value
+
+        return None
 
     # ---- Clipboard and menus ----
     def _clipboard_copy(self):

@@ -97,9 +97,9 @@ class WebSocketServer(threading.Thread):
                     self.logger.info(f"[Connection {connection_id}] Full message: {message}")
                     display_msg = f"Received: {data.get('message', str(data))}"
                     if "error_code" in data:
-                        self.message_queue.put(("RECEIVED_ERROR", display_msg))
+                        self.message_queue.put(("RECEIVED_ERROR", display_msg, message_type))
                     else:
-                        self.message_queue.put(("RECEIVED", display_msg))
+                        self.message_queue.put(("RECEIVED", display_msg, message_type))
                 except json.JSONDecodeError:
                     self.logger.warning(f"[Connection {connection_id}] Invalid JSON received: {message}")
                     self.message_queue.put(("WARNING", f"Invalid JSON received: {message}"))

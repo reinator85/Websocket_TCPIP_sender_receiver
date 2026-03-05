@@ -176,18 +176,19 @@ class TCPServer(threading.Thread):
                     if msg is None:
                         break
                     self._process_received_message(msg, connection_id)
-                # Debug: also show data that arrives as lines (no framing)
+                # Debug / compat: también procesamos datos que llegan como líneas (sin framing)
                 while True:
                     line = _read_one_line_from_buffer(buffer)
                     if line is None:
                         break
-                    self.message_queue.put(("RECEIVED", f"Received (raw): {line}"))
-                # Whatever remains in buffer (no newline) is also shown for debug
+                    # Intentamos tratar la línea como JSON con event_type; si falla, la mostramos como raw
+                    self._process_raw_or_json_line(line, connection_id)
+                # Lo que quede en el buffer (sin salto de línea) también se intenta procesar
                 if buffer:
                     raw = bytes(buffer).decode("utf-8", errors="replace")
                     buffer.clear()
                     if raw.strip():
-                        self.message_queue.put(("RECEIVED", f"Received (raw): {raw}"))
+                        self._process_raw_or_json_line(raw, connection_id)
         except Exception as e:
             self.logger.error("[Connection %s] Error: %s", connection_id, e, exc_info=True)
             self.message_queue.put(("ERROR", f"Connection error: {str(e)}"))
@@ -201,6 +202,19 @@ class TCPServer(threading.Thread):
                     self._clients.remove(client_sock)
             self.message_queue.put(("INFO", f"Client disconnected: {addr[0]}"))
 
+    def _process_raw_or_json_line(self, raw: str, connection_id: int):
+        """
+        Para compatibilidad con streams sin framing: si la línea es JSON válido,
+        la pasamos por _process_received_message (que añade event_type y colores);
+        en caso contrario, se muestra como 'Received (raw)'.
+        """
+        try:
+            # Validamos que es JSON; el parse real se hará en _process_received_message
+            json.loads(raw)
+            self._process_received_message(raw, connection_id)
+        except json.JSONDecodeError:
+            self.message_queue.put(("RECEIVED", f"Received (raw): {raw}"))
+
     def _process_received_message(self, raw: str, connection_id: int):
         try:
             data = json.loads(raw)
@@ -208,9 +222,9 @@ class TCPServer(threading.Thread):
             self.logger.info("[Connection %s] Received: %s", connection_id, message_type)
             display_msg = f"Received: {data.get('message', str(data))}"
             if "error_code" in data:
-                self.message_queue.put(("RECEIVED_ERROR", display_msg))
+                self.message_queue.put(("RECEIVED_ERROR", display_msg, message_type))
             else:
-                self.message_queue.put(("RECEIVED", display_msg))
+                self.message_queue.put(("RECEIVED", display_msg, message_type))
         except json.JSONDecodeError:
             self.logger.warning("[Connection %s] Invalid JSON (full payload shown for debug)", connection_id)
             self.message_queue.put(("RECEIVED", f"Received (raw): {raw}"))
@@ -323,16 +337,17 @@ class TCPClient(threading.Thread):
                     if m is None:
                         break
                     self._process_received(m)
+                # Compatibilidad con streams sin framing: intentamos tratar las líneas como JSON
                 while True:
                     line = _read_one_line_from_buffer(buffer)
                     if line is None:
                         break
-                    self.message_queue.put(("RECEIVED", f"Received (raw): {line}"))
+                    self._process_raw_or_json_line_client(line)
                 if buffer:
                     raw = bytes(buffer).decode("utf-8", errors="replace")
                     buffer.clear()
                     if raw.strip():
-                        self.message_queue.put(("RECEIVED", f"Received (raw): {raw}"))
+                        self._process_raw_or_json_line_client(raw)
         except Exception as e:
             self.logger.error("TCP client error: %s", e, exc_info=True)
             self.message_queue.put(("ERROR", f"Connection error: {str(e)}"))
@@ -353,12 +368,23 @@ class TCPClient(threading.Thread):
             message_type = data.get("event_type", "unknown")
             display_msg = f"Received: {data.get('message', str(data))}"
             if "error_code" in data:
-                self.message_queue.put(("RECEIVED_ERROR", display_msg))
+                self.message_queue.put(("RECEIVED_ERROR", display_msg, message_type))
             else:
-                self.message_queue.put(("RECEIVED", display_msg))
+                self.message_queue.put(("RECEIVED", display_msg, message_type))
         except json.JSONDecodeError:
             self.message_queue.put(("RECEIVED", f"Received (raw): {raw}"))
-        except Exception as e:
+        except Exception:
+            self.message_queue.put(("RECEIVED", f"Received (raw): {raw}"))
+
+    def _process_raw_or_json_line_client(self, raw: str):
+        """
+        Igual que en el servidor: si la línea es JSON válido, se procesa con colores;
+        si no, se muestra como 'Received (raw)'.
+        """
+        try:
+            json.loads(raw)
+            self._process_received(raw)
+        except json.JSONDecodeError:
             self.message_queue.put(("RECEIVED", f"Received (raw): {raw}"))
 
     def send_message(self, message: str):
