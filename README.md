@@ -31,7 +31,7 @@ pip install -r requirements.txt
 ### Run the application
 
 #### Option 1: Using .bat files (recommended on Windows)
-1. Double-click `run_server.bat`
+1. Double-click `run.bat`
 2. A window will open with the application GUI
 
 #### Option 2: Manually
@@ -91,28 +91,4 @@ SenderReceiver/
 └── .gitignore
 ```
 
-## Message format
 
-### Client to server (JSON)
-```json
-{
-    "api_version": "1.0",
-    "event_type": "message",
-    "event_id": "test-123",
-    "time_created": 1640995200000,
-    "message": "Hello server"
-}
-```
-
-### Server broadcast
-```json
-{
-    "api_version": "1.0",
-    "event_type": "broadcast",
-    "event_id": "uuid",
-    "time_created": 1640995200000,
-    "message": "Message to all clients"
-}
-```
-
-TCP/IP uses the same JSON content with length-prefix framing (4 bytes big-endian length + UTF-8 payload).
