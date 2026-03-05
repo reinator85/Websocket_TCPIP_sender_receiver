@@ -224,12 +224,12 @@ SenderReceiver/
 ```json
 {
   "api_version": "3.0",
-  "device_serial": "M3XRJ12013221",
+  "device_serial": "YYYYYYYYYYYYY",
   "event_id": "881f6fd2-8bba-418d-a076-c5ed067d8321",
   "event_time_to_live_duration": 0,
   "event_type": "feedback!",
   "feedback_action_id": "FEEDBACK_POSITIVE",
-  "gateway_serial": "PGGPG00010405",
+  "gateway_serial": "XXXXXXXXXXXXXX",
   "time_created": 1546300800000
 }
 ```
