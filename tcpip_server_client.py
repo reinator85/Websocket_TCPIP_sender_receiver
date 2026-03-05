@@ -114,7 +114,12 @@ class TCPServer(threading.Thread):
                     daemon=True
                 ).start()
 
-            self._listener.close()
+            if self._listener:
+                try:
+                    self._listener.close()
+                except Exception:
+                    pass
+                self._listener = None
         except Exception as e:
             self.logger.error("Error in TCP server: %s", e, exc_info=True)
             self.message_queue.put(("ERROR", f"Error starting server: {str(e)}"))
@@ -164,10 +169,17 @@ class TCPServer(threading.Thread):
                 try:
                     chunk = client_sock.recv(4096)
                 except socket.timeout:
+                    # Timeout normal: procesar buffer y seguir esperando (capturar antes que OSError).
                     msg = _read_framed_message(client_sock, buffer)
                     if msg is not None:
                         self._process_received_message(msg, connection_id)
                     continue
+                except OSError as e:
+                    # Solo salir sin traceback si el socket fue cerrado por el servidor (stop).
+                    # WinError 10038 = WSAENOTSOCK
+                    if getattr(e, "winerror", None) == 10038:
+                        break
+                    raise
                 if not chunk:
                     break
                 buffer.extend(chunk)
@@ -348,6 +360,13 @@ class TCPClient(threading.Thread):
                     buffer.clear()
                     if raw.strip():
                         self._process_raw_or_json_line_client(raw)
+        except (TimeoutError, socket.timeout):
+            self.message_queue.put((
+                "ERROR",
+                "Connection timed out. Comprueba IP/puerto y que el servidor esté en marcha.",
+            ))
+        except OSError as e:
+            self.message_queue.put(("ERROR", f"Connection error: {str(e)}"))
         except Exception as e:
             self.logger.error("TCP client error: %s", e, exc_info=True)
             self.message_queue.put(("ERROR", f"Connection error: {str(e)}"))
