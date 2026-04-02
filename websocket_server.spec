@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec: Sender/Receiver V1.0 (WebSocket y TCP/IP)
+# PyInstaller spec: Sender/Receiver V1.1 (WebSocket, TCP/IP y MQTT)
 
 block_cipher = None
 
@@ -8,7 +8,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['websockets', 'asyncio'],
+    hiddenimports=['websockets', 'asyncio', 'paho', 'paho.mqtt', 'paho.mqtt.client'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -28,7 +28,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='SenderReceiver-V1.0',
+    name='SenderReceiver-V1.1',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
