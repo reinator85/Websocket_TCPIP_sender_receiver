@@ -1,11 +1,12 @@
 @echo off
+setlocal
 echo ========================================
 echo    Crear entorno virtual (venv)
 echo    Sender/Receiver - WebSocket ^& TCP/IP
 echo ========================================
 echo.
 
-if exist "venv\Scripts\activate.bat" (
+if exist "venv\Scripts\python.exe" (
     echo El entorno 'venv' ya existe.
     echo.
     set /p REINSTALL="Reinstalar dependencias? (S/N): "
@@ -26,10 +27,15 @@ echo Entorno creado correctamente.
 echo.
 
 :install_deps
-echo Activando entorno e instalando dependencias (requirements.txt)...
-call venv\Scripts\activate.bat
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+if not exist "venv\Scripts\python.exe" (
+    echo ERROR: No se encontro venv\Scripts\python.exe
+    pause
+    exit /b 1
+)
+
+echo Instalando dependencias en venv (requirements.txt)...
+venv\Scripts\python.exe -m pip install --upgrade pip
+venv\Scripts\python.exe -m pip install -r requirements.txt
 if errorlevel 1 (
     echo ERROR al instalar dependencias.
     pause

@@ -1,6 +1,7 @@
 """
-GUI and orchestration: WebSocket and TCP/IP modes (server or client).
-Uses websocket_server for WebSocket and tcpip_server_client for TCP.
+GUI and orchestration: WebSocket, TCP/IP and MQTT modes.
+Uses websocket_server for WebSocket, tcpip_server_client for TCP,
+and mqtt_client for basic MQTT broker connectivity.
 """
 import asyncio
 import time
@@ -11,18 +12,25 @@ from datetime import datetime
 
 from websocket_server import WebSocketServer
 from tcpip_server_client import TCPServer, TCPClient
+try:
+    from mqtt_client import MQTTClient
+    MQTT_AVAILABLE = True
+except Exception:
+    MQTTClient = None
+    MQTT_AVAILABLE = False
 
 
 class MainGUI:
     MODE_WEBSOCKET = "websocket"
     MODE_TCPIP = "tcpip"
+    MODE_MQTT = "mqtt"
     TCP_SERVER = "tcp_server"
     TCP_CLIENT = "tcp_client"
 
     def __init__(self, root):
         self.root = root
-        self.root.title("Sender/Receiver V1.0 - WebSocket & TCP/IP")
-        self.root.geometry("1000x800")
+        self.root.title("Sender/Receiver V1.0 - WebSocket, TCP/IP & MQTT")
+        self.root.geometry("1000x820")
 
         self.mode_var = tk.StringVar(value=self.MODE_WEBSOCKET)
         self.tcp_submode_var = tk.StringVar(value=self.TCP_SERVER)
@@ -30,6 +38,7 @@ class MainGUI:
         self.ws_server = None
         self.tcp_server = None
         self.tcp_client = None
+        self.mqtt_client = None
 
         self.messages_sent = 0
         self.messages_received = 0
@@ -51,7 +60,8 @@ class MainGUI:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(3, weight=1)
+        # Let the log area grow; keep connection/send sections stable.
+        main_frame.rowconfigure(4, weight=1)
 
         # ---- Interface options ----
         options_frame = ttk.LabelFrame(main_frame, text="Interface options", padding="5")
@@ -76,22 +86,29 @@ class MainGUI:
         mode_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         mode_frame.columnconfigure(1, weight=1)
 
+        self.radio_mqtt = ttk.Radiobutton(
+            mode_frame, text="MQTT (client)",
+            variable=self.mode_var, value=self.MODE_MQTT,
+            command=self.on_mode_change
+        )
+        self.radio_mqtt.grid(row=0, column=0, padx=(0, 20), sticky=tk.W)
+
         self.radio_websocket = ttk.Radiobutton(
             mode_frame, text="WebSocket (server)",
             variable=self.mode_var, value=self.MODE_WEBSOCKET,
             command=self.on_mode_change
         )
-        self.radio_websocket.grid(row=0, column=0, padx=(0, 20))
+        self.radio_websocket.grid(row=0, column=1, padx=(0, 20), sticky=tk.W)
 
         self.radio_tcpip = ttk.Radiobutton(
             mode_frame, text="TCP/IP",
             variable=self.mode_var, value=self.MODE_TCPIP,
             command=self.on_mode_change
         )
-        self.radio_tcpip.grid(row=0, column=1, sticky=tk.W)
+        self.radio_tcpip.grid(row=0, column=2, sticky=tk.W)
 
         self.tcp_subframe = ttk.Frame(mode_frame)
-        self.tcp_subframe.grid(row=0, column=2, padx=(20, 0))
+        self.tcp_subframe.grid(row=0, column=3, padx=(20, 0))
         self.radio_tcp_server = ttk.Radiobutton(
             self.tcp_subframe, text="TCP Server",
             variable=self.tcp_submode_var, value=self.TCP_SERVER,
@@ -110,7 +127,8 @@ class MainGUI:
         server_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         server_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(server_frame, text="IP:").grid(row=0, column=0, padx=(0, 5))
+        self.host_label = ttk.Label(server_frame, text="IP:")
+        self.host_label.grid(row=0, column=0, padx=(0, 5))
         self.host_entry = ttk.Entry(server_frame, width=15)
         self.host_entry.insert(0, "0.0.0.0")
         self.host_entry.grid(row=0, column=1, padx=(0, 10), sticky=(tk.W, tk.E))
@@ -133,11 +151,59 @@ class MainGUI:
         self.status_label = ttk.Label(server_frame, text="Status: Stopped")
         self.status_label.grid(row=0, column=6, padx=(20, 0))
 
+        self.mqtt_extra_frame = ttk.Frame(server_frame)
+        self.mqtt_extra_frame.grid(row=1, column=0, columnspan=7, sticky=(tk.W, tk.E), pady=(8, 0))
+        self.mqtt_extra_frame.columnconfigure(1, weight=1)
+        self.mqtt_extra_frame.columnconfigure(5, weight=1)
+
+        ttk.Label(self.mqtt_extra_frame, text="Client ID:").grid(row=0, column=0, padx=(0, 5), sticky=tk.W)
+        self.mqtt_client_id_entry = ttk.Entry(self.mqtt_extra_frame, width=18)
+        self.mqtt_client_id_entry.grid(row=0, column=1, padx=(0, 10), sticky=(tk.W, tk.E))
+
+        ttk.Label(self.mqtt_extra_frame, text="Keep Alive:").grid(row=0, column=2, padx=(0, 5), sticky=tk.W)
+        self.mqtt_keepalive_entry = ttk.Entry(self.mqtt_extra_frame, width=8)
+        self.mqtt_keepalive_entry.insert(0, "60")
+        self.mqtt_keepalive_entry.grid(row=0, column=3, padx=(0, 10))
+
+        self.mqtt_clean_session_var = tk.BooleanVar(value=True)
+        self.mqtt_auto_reconnect_var = tk.BooleanVar(value=True)
+        self.mqtt_retain_var = tk.BooleanVar(value=False)
+
+        self.mqtt_clean_session_chk = ttk.Checkbutton(
+            self.mqtt_extra_frame, text="Clean session", variable=self.mqtt_clean_session_var
+        )
+        self.mqtt_clean_session_chk.grid(row=0, column=4, padx=(0, 10), sticky=tk.W)
+
+        self.mqtt_auto_reconnect_chk = ttk.Checkbutton(
+            self.mqtt_extra_frame, text="Auto reconnect", variable=self.mqtt_auto_reconnect_var
+        )
+        self.mqtt_auto_reconnect_chk.grid(row=0, column=5, padx=(0, 10), sticky=tk.W)
+
+        ttk.Label(self.mqtt_extra_frame, text="Subscribe topic:").grid(row=1, column=0, padx=(0, 5), pady=(6, 0), sticky=tk.W)
+        self.mqtt_sub_topic_entry = ttk.Entry(self.mqtt_extra_frame, width=26)
+        self.mqtt_sub_topic_entry.insert(0, "demo/test/in")
+        self.mqtt_sub_topic_entry.grid(row=1, column=1, padx=(0, 10), pady=(6, 0), sticky=(tk.W, tk.E))
+
+        ttk.Label(self.mqtt_extra_frame, text="Sub QoS:").grid(row=1, column=2, padx=(0, 5), pady=(6, 0), sticky=tk.W)
+        self.mqtt_sub_qos_combo = ttk.Combobox(self.mqtt_extra_frame, width=5, state="readonly", values=("0", "1", "2"))
+        self.mqtt_sub_qos_combo.set("0")
+        self.mqtt_sub_qos_combo.grid(row=1, column=3, padx=(0, 10), pady=(6, 0), sticky=tk.W)
+
+        self.mqtt_subscribe_button = ttk.Button(
+            self.mqtt_extra_frame, text="Subscribe", command=self.subscribe_mqtt_topic
+        )
+        self.mqtt_subscribe_button.grid(row=1, column=4, padx=(0, 5), pady=(6, 0), sticky=tk.W)
+
+        self.mqtt_unsubscribe_button = ttk.Button(
+            self.mqtt_extra_frame, text="Unsubscribe", command=self.unsubscribe_mqtt_topic
+        )
+        self.mqtt_unsubscribe_button.grid(row=1, column=5, padx=(0, 5), pady=(6, 0), sticky=tk.W)
+
         # ---- Send message ----
         send_frame = ttk.LabelFrame(main_frame, text="Send message", padding="5")
         send_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         send_frame.columnconfigure(0, weight=1)
-        send_frame.rowconfigure(0, weight=1)
+        send_frame.rowconfigure(0, weight=0)
 
         text_frame = ttk.Frame(send_frame)
         text_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
@@ -159,6 +225,25 @@ class MainGUI:
 
         self.send_button = ttk.Button(send_frame, text="Send", command=self.send_message)
         self.send_button.grid(row=0, column=1, sticky=(tk.N, tk.S))
+
+        self.mqtt_publish_frame = ttk.Frame(send_frame)
+        self.mqtt_publish_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(8, 0))
+        self.mqtt_publish_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(self.mqtt_publish_frame, text="Publish topic:").grid(row=0, column=0, padx=(0, 5), sticky=tk.W)
+        self.mqtt_pub_topic_entry = ttk.Entry(self.mqtt_publish_frame)
+        self.mqtt_pub_topic_entry.insert(0, "demo/test/out")
+        self.mqtt_pub_topic_entry.grid(row=0, column=1, padx=(0, 10), sticky=(tk.W, tk.E))
+
+        ttk.Label(self.mqtt_publish_frame, text="QoS:").grid(row=0, column=2, padx=(0, 5), sticky=tk.W)
+        self.mqtt_pub_qos_combo = ttk.Combobox(self.mqtt_publish_frame, width=5, state="readonly", values=("0", "1", "2"))
+        self.mqtt_pub_qos_combo.set("0")
+        self.mqtt_pub_qos_combo.grid(row=0, column=3, padx=(0, 10), sticky=tk.W)
+
+        self.mqtt_retain_chk = ttk.Checkbutton(
+            self.mqtt_publish_frame, text="Retain", variable=self.mqtt_retain_var
+        )
+        self.mqtt_retain_chk.grid(row=0, column=4, sticky=tk.W)
 
         # ---- Log ----
         log_frame = ttk.LabelFrame(main_frame, text="Log", padding="5")
@@ -193,29 +278,51 @@ class MainGUI:
 
     def _disable_mode_options(self):
         """Disable all mode radiobuttons (no switching while server/client is active)."""
-        for w in (self.radio_websocket, self.radio_tcpip, self.radio_tcp_server, self.radio_tcp_client):
+        for w in (
+            self.radio_websocket,
+            self.radio_tcpip,
+            self.radio_mqtt,
+            self.radio_tcp_server,
+            self.radio_tcp_client,
+        ):
             w.config(state="disabled")
 
     def _enable_mode_options(self):
         """Re-enable mode radiobuttons after stop; TCP sub-options follow current mode."""
         self.radio_websocket.config(state=tk.NORMAL)
         self.radio_tcpip.config(state=tk.NORMAL)
+        self.radio_mqtt.config(state=tk.NORMAL)
         self.update_ui_for_mode()
 
     def update_ui_for_mode(self):
         is_ws = self.mode_var.get() == self.MODE_WEBSOCKET
         is_tcp = self.mode_var.get() == self.MODE_TCPIP
+        is_mqtt = self.mode_var.get() == self.MODE_MQTT
         is_tcp_server = self.tcp_submode_var.get() == self.TCP_SERVER
 
         for w in self.tcp_subframe.winfo_children():
             w.configure(state=tk.NORMAL if is_tcp else "disabled")
 
+        if is_mqtt:
+            self.mqtt_extra_frame.grid()
+            self.mqtt_publish_frame.grid()
+        else:
+            self.mqtt_extra_frame.grid_remove()
+            self.mqtt_publish_frame.grid_remove()
+
         if is_ws:
+            self.host_label.config(text="IP:")
             self.host_entry.delete(0, tk.END)
             self.host_entry.insert(0, "0.0.0.0")
+            self.port_entry.delete(0, tk.END)
+            self.port_entry.insert(0, "8765")
             self.start_button.config(text="Start server")
             self.stop_button.config(text="Stop server")
-        else:
+            self.send_button.config(text="Send")
+        elif is_tcp:
+            self.host_label.config(text="IP:")
+            self.port_entry.delete(0, tk.END)
+            self.port_entry.insert(0, "8765")
             if is_tcp_server:
                 self.host_entry.delete(0, tk.END)
                 self.host_entry.insert(0, "0.0.0.0")
@@ -226,6 +333,16 @@ class MainGUI:
                 self.host_entry.insert(0, "127.0.0.1")
                 self.start_button.config(text="Connect")
                 self.stop_button.config(text="Disconnect")
+            self.send_button.config(text="Send")
+        else:
+            self.host_label.config(text="Broker:")
+            self.host_entry.delete(0, tk.END)
+            self.host_entry.insert(0, "127.0.0.1")
+            self.port_entry.delete(0, tk.END)
+            self.port_entry.insert(0, "1883")
+            self.start_button.config(text="Connect")
+            self.stop_button.config(text="Disconnect")
+            self.send_button.config(text="Publish")
 
     def get_active_queue(self):
         """Returns the active backend's message queue, or None."""
@@ -238,6 +355,8 @@ class MainGUI:
                 return self.tcp_server.message_queue
             if self.tcp_submode_var.get() == self.TCP_CLIENT and self.tcp_client is not None:
                 return self.tcp_client.message_queue
+        if self.mode_var.get() == self.MODE_MQTT and self.mqtt_client is not None:
+            return self.mqtt_client.message_queue
         return None
 
     def get_connection_count(self):
@@ -248,6 +367,8 @@ class MainGUI:
                 return self.tcp_server.get_connection_count()
             if self.tcp_client:
                 return self.tcp_client.get_connection_count()
+        if self.mode_var.get() == self.MODE_MQTT and self.mqtt_client:
+            return self.mqtt_client.get_connection_count()
         return 0
 
     def start_backend(self):
@@ -263,11 +384,52 @@ class MainGUI:
 
         if self.mode_var.get() == self.MODE_WEBSOCKET:
             self._start_websocket(host, port)
-        else:
+        elif self.mode_var.get() == self.MODE_TCPIP:
             if self.tcp_submode_var.get() == self.TCP_SERVER:
                 self._start_tcp_server(host, port)
             else:
                 self._start_tcp_client(host, port)
+        else:
+            self._start_mqtt_client(host, port)
+
+    def _start_mqtt_client(self, host, port):
+        if not MQTT_AVAILABLE:
+            messagebox.showerror(
+                "Missing dependency",
+                "MQTT is not available because 'paho-mqtt' is not installed in this venv.\n"
+                "Run setup_env.bat (reinstall dependencies) or:\n"
+                "pip install -r requirements.txt",
+            )
+            return
+        try:
+            keepalive = int(self.mqtt_keepalive_entry.get().strip())
+            if keepalive < 1:
+                messagebox.showerror("Error", "Keep Alive must be greater than 0")
+                return
+        except ValueError:
+            messagebox.showerror("Error", "Keep Alive must be a valid number")
+            return
+
+        if self.mqtt_client is not None and self.mqtt_client.connected:
+            messagebox.showwarning("Warning", "MQTT client is already connected.")
+            return
+        if self.mqtt_client is not None and self.mqtt_client.is_alive():
+            messagebox.showwarning("Warning", "Wait for previous MQTT session to close.")
+            return
+
+        self.mqtt_client = MQTTClient(
+            host=host,
+            port=port,
+            client_id=self.mqtt_client_id_entry.get().strip(),
+            keepalive=keepalive,
+            clean_session=self.mqtt_clean_session_var.get(),
+            auto_reconnect=self.mqtt_auto_reconnect_var.get(),
+        )
+        self.mqtt_client.start()
+        self.start_button.config(state="disabled")
+        self.stop_button.config(state="normal")
+        self.status_label.config(text="Status: Connecting (MQTT client)")
+        self._disable_mode_options()
 
     def _start_websocket(self, host, port):
         if self.ws_server is not None and getattr(self.ws_server, "ident", None) is not None:
@@ -321,6 +483,9 @@ class MainGUI:
             elif self.tcp_submode_var.get() == self.TCP_CLIENT and self.tcp_client:
                 self.tcp_client.stop()
                 self.status_label.config(text="Status: Disconnected")
+        elif self.mode_var.get() == self.MODE_MQTT and self.mqtt_client:
+            self.mqtt_client.stop()
+            self.status_label.config(text="Status: MQTT disconnected")
         self.start_button.config(state="normal")
         self.stop_button.config(state="disabled")
         self._enable_mode_options()
@@ -361,6 +526,57 @@ class MainGUI:
                 self.messages_sent += 1
                 self.update_stats()
                 self.message_text.delete("1.0", tk.END)
+            return
+
+        if self.mode_var.get() == self.MODE_MQTT:
+            if not self.mqtt_client or not self.mqtt_client.connected:
+                messagebox.showwarning("Warning", "Not connected (MQTT client).")
+                return
+            topic = self.mqtt_pub_topic_entry.get().strip()
+            if not topic:
+                messagebox.showwarning("Warning", "Publish topic is required.")
+                return
+            try:
+                qos = int(self.mqtt_pub_qos_combo.get())
+            except ValueError:
+                qos = 0
+            self.mqtt_client.publish(
+                topic=topic,
+                payload=message,
+                qos=qos,
+                retain=self.mqtt_retain_var.get(),
+            )
+            self.messages_sent += 1
+            self.update_stats()
+            self.message_text.delete("1.0", tk.END)
+
+    def subscribe_mqtt_topic(self):
+        if self.mode_var.get() != self.MODE_MQTT:
+            return
+        if not self.mqtt_client or not self.mqtt_client.connected:
+            messagebox.showwarning("Warning", "Not connected (MQTT client).")
+            return
+        topic = self.mqtt_sub_topic_entry.get().strip()
+        if not topic:
+            messagebox.showwarning("Warning", "Subscribe topic is required.")
+            return
+        try:
+            qos = int(self.mqtt_sub_qos_combo.get())
+        except ValueError:
+            qos = 0
+        self.mqtt_client.subscribe_topic(topic=topic, qos=qos)
+
+    def unsubscribe_mqtt_topic(self):
+        if self.mode_var.get() != self.MODE_MQTT:
+            return
+        if not self.mqtt_client or not self.mqtt_client.connected:
+            messagebox.showwarning("Warning", "Not connected (MQTT client).")
+            return
+        topic = self.mqtt_sub_topic_entry.get().strip()
+        if not topic:
+            messagebox.showwarning("Warning", "Topic is required.")
+            return
+        self.mqtt_client.unsubscribe_topic(topic=topic)
 
     def _tag_for_message(self, msg_type, message, event_type):
         """Devuelve el nombre del tag de color para este mensaje."""
@@ -420,6 +636,14 @@ class MainGUI:
 
                     if msg_type in ("RECEIVED", "RECEIVED_ERROR"):
                         self.messages_received += 1
+
+                    if self.mode_var.get() == self.MODE_MQTT and self.mqtt_client:
+                        if self.mqtt_client.connected:
+                            self.status_label.config(text="Status: MQTT connected")
+                        elif self.mqtt_client.running:
+                            self.status_label.config(text="Status: Connecting (MQTT client)")
+                        else:
+                            self.status_label.config(text="Status: MQTT disconnected")
 
                     self.log_text.see(tk.END)
                     self.update_stats()
@@ -553,6 +777,8 @@ class MainGUI:
             self.tcp_server.stop()
         if self.tcp_client and self.tcp_client.running:
             self.tcp_client.stop()
+        if self.mqtt_client and self.mqtt_client.running:
+            self.mqtt_client.stop()
         self.root.destroy()
 
 
